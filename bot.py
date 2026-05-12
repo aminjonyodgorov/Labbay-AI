@@ -72,12 +72,37 @@ async def transcribe_audio(file_path: str, language: str = None) -> str:
             model="whisper-1",
             file=audio_file,
             response_format="text",
-            prompt="O'zbek tilida suhbat. Salom, rahmat, ha, yo'q, iltimos.",
         )
         if language:
             params["language"] = language
         response = openai_client.audio.transcriptions.create(**params)
-    return response.strip() if isinstance(response, str) else response.text.strip()
+    text = response.strip() if isinstance(response, str) else response.text.strip()
+
+    if language == "uz" and text:
+        text = await normalize_uzbek(text)
+
+    return text
+
+
+async def normalize_uzbek(text: str) -> str:
+    response = openai_client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "Sen O'zbek tili mutaxassisisan. "
+                    "Senga Whisper tomonidan noto'g'ri (Ozarbayjon yoki Turk harflari bilan) "
+                    "transkripsiya qilingan O'zbek nutqi beriladi. "
+                    "Matnni to'g'ri O'zbek lotin yozuviga o'zgartir. "
+                    "Faqat tuzatilgan matnni qaytarish kerak, hech qanday izoh yozma."
+                ),
+            },
+            {"role": "user", "content": text},
+        ],
+        temperature=0,
+    )
+    return response.choices[0].message.content.strip()
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
