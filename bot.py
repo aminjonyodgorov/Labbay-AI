@@ -29,7 +29,11 @@ WELCOME_TEXT = """
 • Ovozli xabar yuboring
 • Boshqa chatdan ovozli xabarni forward qiling
 
-🌍 Qo'llab-quvvatlanadigan tillar: O'zbek, Rus, Ingliz va 90+ boshqa tillar
+🌍 Til sozlamalari:
+/uz — O'zbek tili (standart)
+/ru — Rus tili
+/en — Ingliz tili
+/auto — Avtomatik aniqlash
 
 Boshlash uchun ovozli xabar yuboring! 🎙️
 """
@@ -40,8 +44,13 @@ ERROR_TEXT = "❌ Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring."
 
 EMPTY_TEXT = "🔇 Ovozli xabardan matn topilmadi. Aniqroq gapirib ko'ring."
 
+LANGUAGE_NAMES = {"uz": "O'zbek", "ru": "Rus", "en": "Ingliz", None: "Avtomatik"}
+
+USER_LANGUAGES: dict[int, str | None] = {}
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    USER_LANGUAGES[update.effective_user.id] = "uz"
     await update.message.reply_text(WELCOME_TEXT)
 
 
@@ -49,13 +58,25 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(WELCOME_TEXT)
 
 
-async def transcribe_audio(file_path: str) -> str:
+async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    cmd = update.message.text.strip().lstrip("/").split("@")[0]
+    lang = None if cmd == "auto" else cmd
+    USER_LANGUAGES[update.effective_user.id] = lang
+    name = LANGUAGE_NAMES.get(lang, "Avtomatik")
+    await update.message.reply_text(f"✅ Til o'zgartirildi: *{name}*", parse_mode="Markdown")
+
+
+async def transcribe_audio(file_path: str, language: str = None) -> str:
     with open(file_path, "rb") as audio_file:
-        response = openai_client.audio.transcriptions.create(
+        params = dict(
             model="whisper-1",
             file=audio_file,
             response_format="text",
+            prompt="O'zbek tilida suhbat. Salom, rahmat, ha, yo'q, iltimos.",
         )
+        if language:
+            params["language"] = language
+        response = openai_client.audio.transcriptions.create(**params)
     return response.strip() if isinstance(response, str) else response.text.strip()
 
 
@@ -82,7 +103,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
         await voice_file.download_to_drive(tmp_path)
 
-        text = await transcribe_audio(tmp_path)
+        user_lang = USER_LANGUAGES.get(update.effective_user.id, "uz")
+        text = await transcribe_audio(tmp_path, language=user_lang)
 
         os.unlink(tmp_path)
 
@@ -125,6 +147,10 @@ def main() -> None:
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("uz", set_language))
+    app.add_handler(CommandHandler("ru", set_language))
+    app.add_handler(CommandHandler("en", set_language))
+    app.add_handler(CommandHandler("auto", set_language))
 
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     app.add_handler(MessageHandler(filters.AUDIO, handle_voice))
