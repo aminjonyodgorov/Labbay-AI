@@ -187,8 +187,20 @@ def main() -> None:
         )
     )
 
-    logger.info("Bot ishga tushdi...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    webhook_url = os.getenv("WEBHOOK_URL")
+    port = int(os.getenv("PORT", 8080))
+
+    if webhook_url:
+        logger.info(f"Bot webhook rejimida ishga tushdi: {webhook_url}")
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=port,
+            webhook_url=f"{webhook_url}/webhook",
+            allowed_updates=Update.ALL_TYPES,
+        )
+    else:
+        logger.info("Bot polling rejimida ishga tushdi...")
+        app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
