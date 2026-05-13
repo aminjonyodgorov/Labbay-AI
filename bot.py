@@ -29,60 +29,95 @@ logger = logging.getLogger(__name__)
 
 groq_client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
 
-UZBEK_FIX_PROMPT = """Sen O'zbek tili eksperti va lingvistsan.
+WHISPER_PROMPT_UZ = (
+    "O'zbek tilidagi tabiiy suhbat va so'zlashuv. Ism va joy nomlari aynan saqlansin. "
+    "Joylar: Toshkent, Samarqand, Buxoro, Xiva, Andijon, Farg'ona, Namangan, Qashqadaryo, "
+    "Surxondaryo, Xorazm, Navoiy, Jizzax, Sirdaryo, Qoraqalpog'iston. "
+    "Diniy va sayohat: assalomu alaykum, salomatmisiz, hoji, hojimamiz, haj, umra, ziyorat, "
+    "Makka, Madina, Jidda, Ka'ba, Masjidul Haram, masjidi Nabaviy, ehrom, tavof, sa'y, namoz, "
+    "duo, masjid, qabriston, mehmonxona, samolyot, poezd, avtobus, vokzal. "
+    "Texnika: kompyuter, telefon, dastur, internet, ilova. "
+    "Hurmat: yaxshimisiz, salomatmisiz, qalaysiz, charchamay, rahmat, salom, hayrli kun, "
+    "hayrli tong, marhamat, iltimos, kechirasiz, mayli, xayr."
+)
 
-# VAZIFA
-Senga Whisper STT modeli tomonidan O'ZBEK TILIDA transkripsiya qilingan matn beriladi. Lekin Whisper fonetik xatoliklar qiladi — so'zlarni notog'ri yozadi, bo'shliqlarni notog'ri qo'yadi, so'zlarni birlashtiradi yoki ajratadi.
 
-Sening vazifang: matnni FONETIK O'XSHASHLIK orqali to'g'ri o'zbek so'zlariga aylantirish.
+UZBEK_FIX_PROMPT = """Sen O'zbek tili va madaniyati bo'yicha lingvist-eksperti san. Senga Whisper STT modeli o'zbek nutqini transkripsiya qilgan, lekin fonetik xatolar bilan yozgan matn beriladi. Sening vazifang — fonetik o'xshashlik orqali asl o'zbek so'zlarini tiklash.
 
-# QILADIGAN ISHLARING
+══════════════ QAT'IY OUTPUT FORMATI ══════════════
+JAVOBING **FAQAT** tuzatilgan o'zbek matni bo'ladi.
+TAQIQLANGAN:
+- "Tuzatilgan matn:", "Output:", "Natija:" yoki shunga o'xshash prefikslar
+- Sarlavhalar, izohlar, qo'shtirnoq belgilar atrofida
+- Kirish/yakuniy gaplar ("Mana tuzatilgan matn:", "Quyida:", "Marhamat:")
+- Markdown belgilari (**, ##, ```)
+- Tilshunoslik tushuntirishi yoki ogohlantirishlar
 
-1. **Fonetik tuzatish** (so'zlarni eshitilishi bo'yicha to'g'ri o'zbek so'ziga aylantir):
-   - "aqshmisi" / "aqshmisiz" → "yaxshimisiz"
-   - "salametmisi" / "salamatmisi" → "salomatmisiz"
-   - "sharcimi" / "charcamay" → "charchamay"
-   - "An oraki" / "Anoraka" → "Anor aka" (yoki tegishli ism)
-   - "qlayli" / "qilayli" → "qilaylik"
-   - "gaki" / "gapki" → "gapni" / "gapi"
-   - "noa" / "anova" → "anavi"
-   - "buldi" → "bo'ldi"
-   - "Aki" / "ki" → "hali" / "haligi"
-   - "shima" → "shuni"
-   - "kampitur" / "kompitur" → "kompyuter"
-   - "qlay" → "qilay"
-   - "qlayli" → "qilaylik"
+To'g'ri javob: bevosita tuzatilgan o'zbek matni, hech narsa qo'shilmaydi.
 
-2. **So'z chegaralarini to'g'rilash**:
-   - Notog'ri birlashtirilgan so'zlarni ajrat ("Kompyutermasada" → "kompyuter masada")
-   - Notog'ri ajratilgan so'zlarni birlashtir
+══════════════ TUZATISH QOIDALARI ══════════════
 
-3. **O'zbek apostrof tiklash**:
-   - o' (kop→ko'p, dost→do'st, koz→ko'z, soz→so'z, buldi→bo'ldi)
-   - g' (yog→yog', tog→tog', sog→sog')
+1. FONETIK TUZATISH — Whisper noto'g'ri yozgan so'zni eshitilishi bo'yicha to'g'ri o'zbek so'ziga aylantir:
+   • "aqshmisi" / "aqshmisiz" / "yakhshimisi" → "yaxshimisiz"
+   • "salametmisi" / "salamatmisi" → "salomatmisiz"
+   • "sharcimi" / "charcamay" / "sharchamay" → "charchamay"
+   • "qlayli" / "qilayli" / "qilali" → "qilaylik"
+   • "buldi" / "boldi" → "bo'ldi"
+   • "kampitur" / "kompitur" → "kompyuter"
+   • "Aki" / "ki" → "hali" / "haligi" (kontekstga qarab)
+   • "yo'ldi" → "yo'ldir"
+   • "qoyilgan" → "qo'yilgan"
+   • "vokzala" / "vokzaladan" → "vokzalda" / "vokzaldan"
 
-4. **Punktuatsiya va bosh harf**:
-   Nuqta, vergul, savol belgisi qo'y. Gap boshini va atoqli otlarni (ism, joy) bosh harf qil.
+2. DINIY, HAJ VA SAYOHAT LUG'ATI (audio bunday kontekstda bo'lsa):
+   • "taj onamiz" / "ozimama" → "hojimamiz" / "otamiz" (kontekstga qarab)
+   • "haram" / "Karam" / "xaram" → "Haram" yoki "ehrom" (kontekstga qarab)
+   • "Makka", "Madina", "Jidda", "Ka'ba", "Masjidul Haram", "Masjidi Nabaviy"
+   • "ehrom", "tavof", "sa'y", "umra", "haj", "ziyorat", "duo", "namoz"
+   • "mehmonxona", "samolyot", "poezd", "avtobus", "vokzal"
 
-# NIMA QILMASLIK
+3. O'ZBEK APOSTROF (o', g'):
+   • o': ko'p, do'st, so'z, ko'z, bo'ldi, yo'q, ko'cha, o'quvchi, o'rganmoq
+   • g': yog', tog', sog', og'ir, bog', tug'ilgan
 
-❌ **Yangi so'z O'YLAB TOPMA**. Faqat eshitilgan narsalarni tikla.
-❌ **Mavjud so'zni mazmunan o'zgartirma** ("qoldirib" ni "qaytarib" qilma)
-❌ **Tushunarli so'zni o'zgartirma** — agar so'z to'g'ri yozilgan bo'lsa, tegma
-❌ **Noma'lum yoki o'ziga xos so'zlarni** (ism, joy, atama) mashhur so'zga aylantirma — saqla
-❌ **Tarjima qilma** agar matn aniq Rus yoki Ingliz tilida bo'lsa
-❌ **Tartibni o'zgartirma**, gaplarni qayta tartiblama
+4. SO'Z CHEGARALARINI to'g'irlash:
+   • Noto'g'ri birlashtirilganlarni ajrat ("kompyutermasada" → "kompyuter masada")
+   • Noto'g'ri ajratilganlarni birlashtir ("an o" → "anavi" agar kontekst mos kelsa)
 
-# MISOLLAR
+5. PUNKTUATSIYA:
+   • Vergul, nuqta, savol belgisi qo'y
+   • Atoqli otlar (ism, joy, masjid nomi) — bosh harf
+   • Gap boshi — bosh harf
 
-INPUT: An oraki aqshmisi, salamatmisi, sharcimi aqsizmi. Aki, an o masala noa buldi. Kampitur masalasi, shima hal qlayli gaki.
-OUTPUT: Anor aka, yaxshimisiz, salomatmisiz, charchamay yaxshimisiz? Hali, anavi masala bo'ldi. Kompyuter masalasi, shuni hal qilaylik gapni.
+══════════════ MUTLAQO QILMA ══════════════
+✗ YANGI so'z o'ylab topma. Faqat fonetik o'xshashlik orqali tikla.
+✗ Mazmunan o'zgartirma — "qoldirib" → "qaytarib" qilma.
+✗ Noma'lum so'zni mashhur so'zga zo'rlab almashtirma — saqla.
+✗ Tarjima qilma agar audio Rus yoki Ingliz tilida bo'lsa.
+✗ Tartibni o'zgartirma — gaplarni qayta tartiblama.
+✗ Qisqartirma yoki kengaytirma. So'z soni taxminan bir xil bo'lsin.
+✗ Whisper tushunmagan so'zni "hallucinate" qilma — agar shubhali bo'lsa, fonetik yaqin variantni qoldir.
+
+══════════════ MISOLLAR ══════════════
+
+INPUT: An oraki aqshmisi salamatmisi sharcimi aqsizmi Aki an o masala noa buldi
+OUTPUT: Anor aka, yaxshimisiz, salomatmisiz, charchamay yaxshimisiz? Hali anavi masala bo'ldi.
+
+INPUT: Ozi mama taj onamiz bilan komfortimiz bolar bitta farq nima dedik
+OUTPUT: Hojimamiz, otamiz bilan komfortimiz bo'lar, bitta farq nima dedik?
+
+INPUT: tashkina Madina uchun uchamizdi birinchi tashkina Jidda uchub
+OUTPUT: Toshkentdan Madina uchun uchamiz edi, birinchi Toshkentdan Jiddaga uchib.
+
+INPUT: id dengiz boyida edi
+OUTPUT: oid, dengiz bo'yida edi.
+
+INPUT: tez yuradigan poezdmiz avtobus qoyiladi
+OUTPUT: tez yuradigan poyezdmiz, avtobus qo'yiladi.
 
 INPUT: Salom qalaysiz yaxshimisiz
 OUTPUT: Salom, qalaysiz, yaxshimisiz?
-
-# NATIJA FORMATI
-Faqat tuzatilgan o'zbek matni. Izoh, sarlavha, qo'shtirnoq, "Output:" prefiksi qo'shma."""
+"""
 
 WELCOME_TEXT = """
 👋 Salom! Men ovozli xabarlarni matnga aylantiraman.
@@ -97,6 +132,7 @@ WELCOME_TEXT = """
 /en — Ingliz tili
 /auto — Avtomatik aniqlash
 
+🔬 /debug — xom va tuzatilgan natijani yonma-yon ko'rsatish
 ℹ️ /myid — sizning Telegram ID
 
 Boshlash uchun ovozli xabar yuboring! 🎙️
@@ -109,7 +145,31 @@ BLOCKED_TEXT = "🚫 Sizning kirishingiz cheklangan."
 
 LANGUAGE_NAMES = {"uz": "O'zbek", "ru": "Rus", "en": "Ingliz", "auto": "Avtomatik"}
 USER_LANGUAGES: dict[int, str] = {}
+USER_DEBUG: dict[int, bool] = {}
 GROQ_LANG_MAP = {"uz": "uz", "ru": "ru", "en": "en", "auto": None}
+
+
+LLM_PREFIX_NOISE = (
+    "tuzatilgan matn:", "tuzatilgan natija:", "tuzatish:", "natija:",
+    "output:", "mana tuzatilgan matn:", "mana natija:", "javob:",
+    "to'g'ri matn:", "tuzatilgan o'zbek matni:", "mana:",
+)
+
+
+def _sanitize_llm_output(text: str) -> str:
+    if not text:
+        return ""
+    out = text.strip().strip("`").strip()
+    lowered = out.lower()
+    for prefix in LLM_PREFIX_NOISE:
+        if lowered.startswith(prefix):
+            out = out[len(prefix):].lstrip(" :\n\t-—")
+            lowered = out.lower()
+    if out.startswith('"') and out.endswith('"') and len(out) > 1:
+        out = out[1:-1]
+    if out.startswith("'") and out.endswith("'") and len(out) > 1:
+        out = out[1:-1]
+    return out.strip()
 
 VOICE_RATE_WINDOW_SEC = 60
 VOICE_RATE_MAX = 15
@@ -156,6 +216,21 @@ async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(f"🆔 Sizning Telegram ID: `{uid}`", parse_mode="Markdown")
 
 
+async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    uid = update.effective_user.id
+    new_state = not USER_DEBUG.get(uid, False)
+    USER_DEBUG[uid] = new_state
+    if new_state:
+        await update.message.reply_text(
+            "🔬 Debug rejimi YOQILDI.\n\n"
+            "Endi har bir ovozli xabar uchun xom (Whisper) va tuzatilgan (LLM) "
+            "natijalarni alohida ko'rasiz. Bu sifatni baholash uchun foydali.\n\n"
+            "O'chirish uchun yana /debug yuboring."
+        )
+    else:
+        await update.message.reply_text("🔕 Debug rejimi O'CHIRILDI. Faqat tuzatilgan matn yuboriladi.")
+
+
 async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     cmd = update.message.text.strip().lstrip("/").split("@")[0]
     USER_LANGUAGES[update.effective_user.id] = cmd
@@ -180,6 +255,8 @@ async def groq_transcribe(file_path: str, language: str | None) -> str:
     )
     if language:
         kwargs["language"] = language
+    if language == "uz":
+        kwargs["prompt"] = WHISPER_PROMPT_UZ
     response = await groq_client.audio.transcriptions.create(**kwargs)
     text = getattr(response, "text", None) or (response if isinstance(response, str) else "")
     return text.strip() if text else ""
@@ -196,7 +273,8 @@ async def fix_uzbek(raw_text: str) -> str:
         ],
         temperature=0,
     )
-    return response.choices[0].message.content.strip()
+    raw = response.choices[0].message.content or ""
+    return _sanitize_llm_output(raw)
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -264,12 +342,26 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         else:
             fixed_text = raw_text
 
-        text = fixed_text
-        max_len = 4000
-        if len(text) <= max_len:
-            await processing_msg.edit_text(f"📝 {text}")
+        debug_on = USER_DEBUG.get(user.id, False) and target_lang == "uz"
+        max_len = 3500
+        if debug_on:
+            text = (
+                f"📝 *Tuzatilgan (LLM):*\n{fixed_text}\n\n"
+                f"🔬 *Xom (Whisper):*\n{raw_text}"
+            )
         else:
-            await processing_msg.edit_text(f"📝 {text[:max_len]}")
+            text = f"📝 {fixed_text}"
+
+        if len(text) <= max_len:
+            try:
+                await processing_msg.edit_text(text, parse_mode="Markdown")
+            except Exception:
+                await processing_msg.edit_text(text)
+        else:
+            try:
+                await processing_msg.edit_text(text[:max_len], parse_mode="Markdown")
+            except Exception:
+                await processing_msg.edit_text(text[:max_len])
             for i in range(max_len, len(text), max_len):
                 await update.message.reply_text(text[i : i + max_len])
 
@@ -321,6 +413,7 @@ def build_app() -> Application:
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("myid", myid_command))
+    app.add_handler(CommandHandler("debug", debug_command))
     app.add_handler(CommandHandler("uz", set_language))
     app.add_handler(CommandHandler("ru", set_language))
     app.add_handler(CommandHandler("en", set_language))
