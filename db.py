@@ -174,82 +174,147 @@ async def hourly_activity(hours: int = 24) -> list[dict]:
 
 
 async def list_users(limit: int = 50, offset: int = 0, search: str = "") -> list[dict]:
-    async with pool().acquire() as conn:
-        if search:
-            rows = await conn.fetch(
-                """
-                SELECT u.*, COUNT(t.id) AS voice_count,
-                       COALESCE(SUM(t.duration_seconds), 0) AS total_seconds
-                FROM users u
-                LEFT JOIN transcriptions t ON t.user_id = u.telegram_id
-                WHERE u.username ILIKE $1 OR u.first_name ILIKE $1 OR CAST(u.telegram_id AS TEXT) LIKE $1
-                GROUP BY u.telegram_id
-                ORDER BY u.last_active_at DESC
-                LIMIT $2 OFFSET $3
-                """,
-                f"%{search}%", limit, offset,
-            )
-        else:
-            rows = await conn.fetch(
-                """
-                SELECT u.*, COUNT(t.id) AS voice_count,
-                       COALESCE(SUM(t.duration_seconds), 0) AS total_seconds
-                FROM users u
-                LEFT JOIN transcriptions t ON t.user_id = u.telegram_id
-                GROUP BY u.telegram_id
-                ORDER BY u.last_active_at DESC
-                LIMIT $1 OFFSET $2
-                """,
-                limit, offset,
-            )
-        return [dict(r) for r in rows]
+    try:
+        async with pool().acquire() as conn:
+            if search:
+                rows = await conn.fetch(
+                    """
+                    SELECT u.telegram_id, u.username, u.first_name, u.last_name,
+                           u.language, u.is_blocked, u.joined_at, u.last_active_at,
+                           COUNT(t.id) AS voice_count,
+                           COALESCE(SUM(t.duration_seconds), 0)::bigint AS total_seconds
+                    FROM users u
+                    LEFT JOIN transcriptions t ON t.user_id = u.telegram_id
+                    WHERE u.username ILIKE $1 OR u.first_name ILIKE $1 OR CAST(u.telegram_id AS TEXT) LIKE $1
+                    GROUP BY u.telegram_id
+                    ORDER BY u.last_active_at DESC NULLS LAST
+                    LIMIT $2 OFFSET $3
+                    """,
+                    f"%{search}%", limit, offset,
+                )
+            else:
+                rows = await conn.fetch(
+                    """
+                    SELECT u.telegram_id, u.username, u.first_name, u.last_name,
+                           u.language, u.is_blocked, u.joined_at, u.last_active_at,
+                           COUNT(t.id) AS voice_count,
+                           COALESCE(SUM(t.duration_seconds), 0)::bigint AS total_seconds
+                    FROM users u
+                    LEFT JOIN transcriptions t ON t.user_id = u.telegram_id
+                    GROUP BY u.telegram_id
+                    ORDER BY u.last_active_at DESC NULLS LAST
+                    LIMIT $1 OFFSET $2
+                    """,
+                    limit, offset,
+                )
+            return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"list_users failed: {e}", exc_info=True)
+        return []
 
 
 async def list_transcriptions(limit: int = 50, offset: int = 0, search: str = "", errors_only: bool = False) -> list[dict]:
-    where = []
-    params: list = []
-    if errors_only:
-        where.append("t.error IS NOT NULL")
-    if search:
-        params.append(f"%{search}%")
-        where.append(f"(t.raw_text ILIKE ${len(params)} OR t.fixed_text ILIKE ${len(params)})")
-    where_sql = "WHERE " + " AND ".join(where) if where else ""
-    params.extend([limit, offset])
-    sql = f"""
-        SELECT t.*, u.username, u.first_name
-        FROM transcriptions t
-        LEFT JOIN users u ON u.telegram_id = t.user_id
-        {where_sql}
-        ORDER BY t.created_at DESC
-        LIMIT ${len(params) - 1} OFFSET ${len(params)}
-    """
-    async with pool().acquire() as conn:
-        rows = await conn.fetch(sql, *params)
-        return [dict(r) for r in rows]
+    try:
+        async with pool().acquire() as conn:
+            if errors_only and search:
+                rows = await conn.fetch(
+                    """
+                    SELECT t.id, t.user_id, t.duration_seconds, t.file_size_bytes,
+                           t.language, t.raw_text, t.fixed_text, t.latency_ms,
+                           t.error, t.created_at, u.username, u.first_name
+                    FROM transcriptions t
+                    LEFT JOIN users u ON u.telegram_id = t.user_id
+                    WHERE t.error IS NOT NULL
+                      AND (t.raw_text ILIKE $1 OR t.fixed_text ILIKE $1 OR t.error ILIKE $1)
+                    ORDER BY t.created_at DESC
+                    LIMIT $2 OFFSET $3
+                    """,
+                    f"%{search}%", limit, offset,
+                )
+            elif errors_only:
+                rows = await conn.fetch(
+                    """
+                    SELECT t.id, t.user_id, t.duration_seconds, t.file_size_bytes,
+                           t.language, t.raw_text, t.fixed_text, t.latency_ms,
+                           t.error, t.created_at, u.username, u.first_name
+                    FROM transcriptions t
+                    LEFT JOIN users u ON u.telegram_id = t.user_id
+                    WHERE t.error IS NOT NULL
+                    ORDER BY t.created_at DESC
+                    LIMIT $1 OFFSET $2
+                    """,
+                    limit, offset,
+                )
+            elif search:
+                rows = await conn.fetch(
+                    """
+                    SELECT t.id, t.user_id, t.duration_seconds, t.file_size_bytes,
+                           t.language, t.raw_text, t.fixed_text, t.latency_ms,
+                           t.error, t.created_at, u.username, u.first_name
+                    FROM transcriptions t
+                    LEFT JOIN users u ON u.telegram_id = t.user_id
+                    WHERE t.raw_text ILIKE $1 OR t.fixed_text ILIKE $1
+                    ORDER BY t.created_at DESC
+                    LIMIT $2 OFFSET $3
+                    """,
+                    f"%{search}%", limit, offset,
+                )
+            else:
+                rows = await conn.fetch(
+                    """
+                    SELECT t.id, t.user_id, t.duration_seconds, t.file_size_bytes,
+                           t.language, t.raw_text, t.fixed_text, t.latency_ms,
+                           t.error, t.created_at, u.username, u.first_name
+                    FROM transcriptions t
+                    LEFT JOIN users u ON u.telegram_id = t.user_id
+                    ORDER BY t.created_at DESC
+                    LIMIT $1 OFFSET $2
+                    """,
+                    limit, offset,
+                )
+            return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"list_transcriptions failed: {e}", exc_info=True)
+        return []
 
 
 async def count_users(search: str = "") -> int:
-    async with pool().acquire() as conn:
-        if search:
-            return await conn.fetchval(
-                """
-                SELECT COUNT(*) FROM users
-                WHERE username ILIKE $1 OR first_name ILIKE $1 OR CAST(telegram_id AS TEXT) LIKE $1
-                """,
-                f"%{search}%",
-            )
-        return await conn.fetchval("SELECT COUNT(*) FROM users")
+    try:
+        async with pool().acquire() as conn:
+            if search:
+                v = await conn.fetchval(
+                    """
+                    SELECT COUNT(*) FROM users
+                    WHERE username ILIKE $1 OR first_name ILIKE $1 OR CAST(telegram_id AS TEXT) LIKE $1
+                    """,
+                    f"%{search}%",
+                )
+            else:
+                v = await conn.fetchval("SELECT COUNT(*) FROM users")
+            return v or 0
+    except Exception as e:
+        logger.error(f"count_users failed: {e}", exc_info=True)
+        return 0
 
 
 async def count_transcriptions(search: str = "", errors_only: bool = False) -> int:
-    where = []
-    params: list = []
-    if errors_only:
-        where.append("error IS NOT NULL")
-    if search:
-        params.append(f"%{search}%")
-        where.append(f"(raw_text ILIKE ${len(params)} OR fixed_text ILIKE ${len(params)})")
-    where_sql = "WHERE " + " AND ".join(where) if where else ""
-    sql = f"SELECT COUNT(*) FROM transcriptions {where_sql}"
-    async with pool().acquire() as conn:
-        return await conn.fetchval(sql, *params)
+    try:
+        async with pool().acquire() as conn:
+            if errors_only and search:
+                v = await conn.fetchval(
+                    "SELECT COUNT(*) FROM transcriptions WHERE error IS NOT NULL AND (raw_text ILIKE $1 OR fixed_text ILIKE $1 OR error ILIKE $1)",
+                    f"%{search}%",
+                )
+            elif errors_only:
+                v = await conn.fetchval("SELECT COUNT(*) FROM transcriptions WHERE error IS NOT NULL")
+            elif search:
+                v = await conn.fetchval(
+                    "SELECT COUNT(*) FROM transcriptions WHERE raw_text ILIKE $1 OR fixed_text ILIKE $1",
+                    f"%{search}%",
+                )
+            else:
+                v = await conn.fetchval("SELECT COUNT(*) FROM transcriptions")
+            return v or 0
+    except Exception as e:
+        logger.error(f"count_transcriptions failed: {e}", exc_info=True)
+        return 0
