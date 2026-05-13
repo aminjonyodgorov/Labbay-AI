@@ -4,6 +4,7 @@ import asyncio
 import logging
 import tempfile
 import uvicorn
+from collections import defaultdict
 from dotenv import load_dotenv
 from groq import AsyncGroq
 from telegram import Update
@@ -110,6 +111,23 @@ LANGUAGE_NAMES = {"uz": "O'zbek", "ru": "Rus", "en": "Ingliz", "auto": "Avtomati
 USER_LANGUAGES: dict[int, str] = {}
 GROQ_LANG_MAP = {"uz": "uz", "ru": "ru", "en": "en", "auto": None}
 
+VOICE_RATE_WINDOW_SEC = 60
+VOICE_RATE_MAX = 15
+MAX_VOICE_FILE_BYTES = 25 * 1024 * 1024
+
+_voice_rate: dict[int, list[float]] = defaultdict(list)
+
+
+def _check_voice_rate(user_id: int) -> bool:
+    now = time.monotonic()
+    bucket = [t for t in _voice_rate[user_id] if now - t < VOICE_RATE_WINDOW_SEC]
+    if len(bucket) >= VOICE_RATE_MAX:
+        _voice_rate[user_id] = bucket
+        return False
+    bucket.append(now)
+    _voice_rate[user_id] = bucket
+    return True
+
 
 async def _track_user(update: Update) -> None:
     u = update.effective_user
@@ -203,6 +221,18 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if duration and duration > 600:
         await update.message.reply_text(
             "⚠️ Ovozli xabar 10 daqiqadan uzun. Iltimos, qisqaroq xabar yuboring."
+        )
+        return
+
+    if file_size and file_size > MAX_VOICE_FILE_BYTES:
+        await update.message.reply_text(
+            "⚠️ Fayl juda katta (25 MB dan ortiq). Iltimos, kichikroq fayl yuboring."
+        )
+        return
+
+    if not _check_voice_rate(user.id):
+        await update.message.reply_text(
+            "⏳ Juda tez yuboryapsiz. Iltimos, 1 daqiqa kuting va qayta urinib ko'ring."
         )
         return
 
