@@ -1,8 +1,9 @@
 import os
 import secrets
 import logging
+import traceback
 from fastapi import FastAPI, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -16,6 +17,16 @@ app = FastAPI(title="Labbay-AI Admin")
 
 _secret = os.getenv("SESSION_SECRET") or secrets.token_hex(32)
 app.add_middleware(SessionMiddleware, secret_key=_secret, max_age=86400 * 7)
+
+
+@app.exception_handler(Exception)
+async def all_exceptions(request: Request, exc: Exception):
+    tb = traceback.format_exc()
+    logger.error(f"Unhandled error on {request.url.path}:\n{tb}")
+    return PlainTextResponse(
+        f"500 Internal Server Error\n\nPath: {request.url.path}\n\n{tb}",
+        status_code=500,
+    )
 
 templates = Jinja2Templates(directory="templates")
 templates.env.filters["min"] = min
