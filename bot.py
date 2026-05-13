@@ -4,7 +4,6 @@ import logging
 import tempfile
 from dotenv import load_dotenv
 from groq import AsyncGroq
-from openai import AsyncOpenAI
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -23,7 +22,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 groq_client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
-openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 UZBEK_FIX_PROMPT = """Sen O'zbek tili eksperti va lingvistsan.
 
@@ -153,17 +151,19 @@ async def fix_uzbek(raw_text: str) -> str:
     if not raw_text:
         return ""
     try:
-        response = await openai_client.chat.completions.create(
-            model="gpt-4o",
+        response = await groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": UZBEK_FIX_PROMPT},
                 {"role": "user", "content": raw_text},
             ],
             temperature=0,
         )
-        return response.choices[0].message.content.strip()
+        fixed = response.choices[0].message.content.strip()
+        logger.info(f"Uzbek fix: '{raw_text[:80]}' -> '{fixed[:80]}'")
+        return fixed
     except Exception as e:
-        logger.warning(f"GPT fix failed, returning raw: {e}")
+        logger.error(f"Groq LLM fix failed, returning raw: {e}", exc_info=True)
         return raw_text
 
 
