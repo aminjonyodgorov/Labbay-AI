@@ -129,37 +129,48 @@ async def insert_transcription(
         )
 
 
+async def _fetchval(conn, sql, *args, default=0):
+    try:
+        v = await conn.fetchval(sql, *args)
+        return v if v is not None else default
+    except Exception as e:
+        logger.warning(f"query failed [{sql[:60]}...]: {e}")
+        return default
+
+
 async def stats_overview() -> dict:
     async with pool().acquire() as conn:
-        row = await conn.fetchrow("""
-            SELECT
-                (SELECT COUNT(*) FROM users) AS total_users,
-                (SELECT COUNT(*) FROM users WHERE is_blocked) AS blocked_users,
-                (SELECT COUNT(*) FROM users WHERE last_active_at > NOW() - INTERVAL '24 hours') AS active_24h,
-                (SELECT COUNT(*) FROM transcriptions) AS total_transcriptions,
-                (SELECT COUNT(*) FROM transcriptions WHERE error IS NOT NULL) AS total_errors,
-                (SELECT COUNT(*) FROM transcriptions WHERE created_at > NOW() - INTERVAL '24 hours') AS tx_24h,
-                (SELECT COALESCE(SUM(duration_seconds), 0) FROM transcriptions) AS total_seconds,
-                (SELECT COALESCE(AVG(latency_ms), 0) FROM transcriptions WHERE error IS NULL) AS avg_latency_ms
-        """)
-        return dict(row) if row else {}
+        return {
+            "total_users": await _fetchval(conn, "SELECT COUNT(*) FROM users"),
+            "blocked_users": await _fetchval(conn, "SELECT COUNT(*) FROM users WHERE is_blocked = TRUE"),
+            "active_24h": await _fetchval(conn, "SELECT COUNT(*) FROM users WHERE last_active_at > NOW() - INTERVAL '24 hours'"),
+            "total_transcriptions": await _fetchval(conn, "SELECT COUNT(*) FROM transcriptions"),
+            "total_errors": await _fetchval(conn, "SELECT COUNT(*) FROM transcriptions WHERE error IS NOT NULL"),
+            "tx_24h": await _fetchval(conn, "SELECT COUNT(*) FROM transcriptions WHERE created_at > NOW() - INTERVAL '24 hours'"),
+            "total_seconds": int(await _fetchval(conn, "SELECT COALESCE(SUM(duration_seconds), 0) FROM transcriptions")),
+            "avg_latency_ms": int(await _fetchval(conn, "SELECT COALESCE(AVG(latency_ms), 0) FROM transcriptions WHERE error IS NULL")),
+        }
 
 
 async def hourly_activity(hours: int = 24) -> list[dict]:
-    async with pool().acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT
-                date_trunc('hour', created_at) AS hour,
-                COUNT(*) AS cnt,
-                COUNT(*) FILTER (WHERE error IS NOT NULL) AS errors
-            FROM transcriptions
-            WHERE created_at > NOW() - ($1::int * INTERVAL '1 hour')
-            GROUP BY 1 ORDER BY 1
-            """,
-            hours,
-        )
-        return [dict(r) for r in rows]
+    try:
+        async with pool().acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT
+                    date_trunc('hour', created_at) AS hour,
+                    COUNT(*) AS cnt,
+                    SUM(CASE WHEN error IS NOT NULL THEN 1 ELSE 0 END) AS errors
+                FROM transcriptions
+                WHERE created_at > NOW() - make_interval(hours => $1)
+                GROUP BY 1 ORDER BY 1
+                """,
+                hours,
+            )
+            return [dict(r) for r in rows]
+    except Exception as e:
+        logger.warning(f"hourly_activity failed: {e}")
+        return []
 
 
 async def list_users(limit: int = 50, offset: int = 0, search: str = "") -> list[dict]:
