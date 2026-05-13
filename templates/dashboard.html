@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Labbay-AI{% endblock %}
+{% block content %}
+<h1 class="text-2xl font-bold mb-6">📊 Dashboard</h1>
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+  <div class="bg-slate-800 border border-slate-700 rounded-xl p-4">
+    <div class="text-slate-400 text-xs uppercase">Foydalanuvchilar</div>
+    <div class="text-3xl font-bold mt-1">{{ stats.total_users }}</div>
+    <div class="text-xs text-slate-500 mt-1">{{ stats.active_24h }} faol (24s)</div>
+  </div>
+  <div class="bg-slate-800 border border-slate-700 rounded-xl p-4">
+    <div class="text-slate-400 text-xs uppercase">Ovozli xabarlar</div>
+    <div class="text-3xl font-bold mt-1">{{ stats.total_transcriptions }}</div>
+    <div class="text-xs text-slate-500 mt-1">{{ stats.tx_24h }} oxirgi 24s</div>
+  </div>
+  <div class="bg-slate-800 border border-slate-700 rounded-xl p-4">
+    <div class="text-slate-400 text-xs uppercase">Jami daqiqa</div>
+    <div class="text-3xl font-bold mt-1">{{ (stats.total_seconds // 60) }}</div>
+    <div class="text-xs text-slate-500 mt-1">{{ stats.total_seconds }} soniya</div>
+  </div>
+  <div class="bg-slate-800 border border-slate-700 rounded-xl p-4">
+    <div class="text-slate-400 text-xs uppercase">Xatolar</div>
+    <div class="text-3xl font-bold mt-1 {% if stats.total_errors %}text-red-400{% endif %}">{{ stats.total_errors }}</div>
+    <div class="text-xs text-slate-500 mt-1">~{{ (stats.avg_latency_ms // 1) }}ms latency</div>
+  </div>
+</div>
+
+<div class="bg-slate-800 border border-slate-700 rounded-xl p-6 mb-6">
+  <h2 class="font-semibold mb-4">Oxirgi 24 soat faolligi</h2>
+  <canvas id="activityChart" height="80"></canvas>
+</div>
+
+<div class="bg-slate-800 border border-slate-700 rounded-xl p-6">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="font-semibold">Oxirgi transkripsiyalar</h2>
+    <a href="/admin/transcriptions" class="text-sm text-purple-400 hover:underline">Hammasi →</a>
+  </div>
+  <div class="space-y-2">
+    {% for tx in recent %}
+    <div class="border-b border-slate-700 pb-2 last:border-0">
+      <div class="flex items-center gap-3 text-xs text-slate-500 mb-1">
+        <span>{{ tx.created_at.strftime("%Y-%m-%d %H:%M") }}</span>
+        <span>· {{ tx.first_name or tx.username or tx.user_id }}</span>
+        <span>· {{ tx.duration_seconds or 0 }}s</span>
+        <span>· {{ tx.language }}</span>
+        {% if tx.error %}<span class="text-red-400">· XATO</span>{% endif %}
+      </div>
+      <div class="text-sm">{{ (tx.fixed_text or tx.raw_text or tx.error or "—")[:200] }}</div>
+    </div>
+    {% else %}
+    <p class="text-slate-500 text-sm">Hozircha ma'lumot yo'q.</p>
+    {% endfor %}
+  </div>
+</div>
+
+<script>
+const ctx = document.getElementById('activityChart');
+new Chart(ctx, {
+  type: 'bar',
+  data: {
+    labels: {{ chart_labels | tojson }},
+    datasets: [
+      {label: 'Ovozlar', data: {{ chart_counts | tojson }}, backgroundColor: 'rgba(168, 85, 247, 0.7)'},
+      {label: 'Xatolar', data: {{ chart_errors | tojson }}, backgroundColor: 'rgba(239, 68, 68, 0.8)'}
+    ]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { labels: { color: '#cbd5e1' } } },
+    scales: {
+      x: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } },
+      y: { ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' }, beginAtZero: true }
+    }
+  }
+});
+</script>
+{% endblock %}

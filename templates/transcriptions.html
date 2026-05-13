@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Transkripsiyalar — Labbay-AI{% endblock %}
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold">
+    {% if errors_only %}❌ Xatolar{% else %}🎙️ Transkripsiyalar{% endif %}
+    <span class="text-slate-400 text-base font-normal">({{ total }})</span>
+  </h1>
+  <form method="get" class="flex gap-2">
+    <input type="text" name="q" value="{{ search }}" placeholder="Matn ichidan qidirish"
+      class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm focus:border-purple-500 focus:outline-none">
+    <button class="bg-purple-600 hover:bg-purple-700 rounded-lg px-3 py-1.5 text-sm">Qidirish</button>
+  </form>
+</div>
+
+<div class="space-y-3">
+  {% for tx in items %}
+  <div class="bg-slate-800 border {% if tx.error %}border-red-800{% else %}border-slate-700{% endif %} rounded-xl p-4">
+    <div class="flex items-center justify-between text-xs text-slate-400 mb-2">
+      <div class="flex items-center gap-3">
+        <span class="font-mono">#{{ tx.id }}</span>
+        <span>· {{ tx.created_at.strftime("%Y-%m-%d %H:%M:%S") }}</span>
+        <span>· {{ tx.first_name or tx.username or tx.user_id }}</span>
+        <span class="bg-slate-700 rounded px-2 py-0.5">{{ tx.language }}</span>
+        <span>{{ tx.duration_seconds or 0 }}s</span>
+        {% if tx.latency_ms %}<span>· {{ tx.latency_ms }}ms</span>{% endif %}
+      </div>
+      {% if tx.error %}<span class="text-red-400">XATO</span>{% endif %}
+    </div>
+
+    {% if tx.error %}
+      <div class="bg-red-950/50 border border-red-900 rounded-lg p-3 text-red-200 text-sm font-mono">{{ tx.error }}</div>
+    {% else %}
+      {% if tx.raw_text and tx.fixed_text and tx.raw_text != tx.fixed_text %}
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <div class="text-xs text-slate-500 mb-1">Xom (Whisper):</div>
+          <div class="bg-slate-900 rounded p-2 text-sm text-slate-300">{{ tx.raw_text }}</div>
+        </div>
+        <div>
+          <div class="text-xs text-purple-400 mb-1">Tuzatilgan (LLM):</div>
+          <div class="bg-slate-900 rounded p-2 text-sm">{{ tx.fixed_text }}</div>
+        </div>
+      </div>
+      {% else %}
+      <div class="text-sm">{{ tx.fixed_text or tx.raw_text or "—" }}</div>
+      {% endif %}
+    {% endif %}
+  </div>
+  {% else %}
+  <p class="text-center py-12 text-slate-500">Hech narsa topilmadi</p>
+  {% endfor %}
+</div>
+
+{% if total > limit %}
+<div class="flex justify-between items-center mt-6 text-sm">
+  <div class="text-slate-400">{{ offset + 1 }} – {{ [offset + limit, total] | min }} / {{ total }}</div>
+  <div class="flex gap-2">
+    {% if offset > 0 %}
+    <a href="?q={{ search }}&offset={{ [offset - limit, 0] | max }}" class="bg-slate-700 hover:bg-slate-600 rounded px-3 py-1">← Oldingi</a>
+    {% endif %}
+    {% if offset + limit < total %}
+    <a href="?q={{ search }}&offset={{ offset + limit }}" class="bg-slate-700 hover:bg-slate-600 rounded px-3 py-1">Keyingi →</a>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

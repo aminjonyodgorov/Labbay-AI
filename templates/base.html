@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}Labbay-AI Admin{% endblock %}</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+</style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen">
+{% if request.session.get("auth") %}
+<nav class="bg-slate-800 border-b border-slate-700 px-6 py-3 flex items-center justify-between sticky top-0 z-10">
+  <div class="flex items-center gap-6">
+    <a href="/admin" class="font-bold text-lg text-purple-400">🎙️ Labbay-AI</a>
+    <a href="/admin" class="hover:text-purple-300 {% if active=='dashboard' %}text-purple-400 font-semibold{% endif %}">Dashboard</a>
+    <a href="/admin/users" class="hover:text-purple-300 {% if active=='users' %}text-purple-400 font-semibold{% endif %}">Foydalanuvchilar</a>
+    <a href="/admin/transcriptions" class="hover:text-purple-300 {% if active=='transcriptions' %}text-purple-400 font-semibold{% endif %}">Transkripsiyalar</a>
+    <a href="/admin/errors" class="hover:text-purple-300 {% if active=='errors' %}text-red-400 font-semibold{% endif %}">Xatolar</a>
+  </div>
+  <a href="/admin/logout" class="text-sm text-slate-400 hover:text-white">Chiqish</a>
+</nav>
+{% endif %}
+<main class="max-w-7xl mx-auto p-6">
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>
