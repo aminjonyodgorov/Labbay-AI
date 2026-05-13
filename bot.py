@@ -3,7 +3,7 @@ import asyncio
 import logging
 import tempfile
 from dotenv import load_dotenv
-from openai import AsyncOpenAI
+from groq import AsyncGroq
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -21,15 +21,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-WHISPER_SUPPORTED_LANGS = {
-    "af", "ar", "hy", "az", "be", "bs", "bg", "ca", "zh", "hr", "cs", "da",
-    "nl", "en", "et", "fi", "fr", "gl", "de", "el", "he", "hi", "hu", "is",
-    "id", "it", "ja", "kn", "kk", "ko", "lv", "lt", "mk", "ms", "mr", "mi",
-    "ne", "no", "fa", "pl", "pt", "ro", "ru", "sr", "sk", "sl", "es", "sw",
-    "sv", "tl", "ta", "th", "tr", "uk", "ur", "vi", "cy",
-}
+groq_client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
 
 WELCOME_TEXT = """
 👋 Salom! Men ovozli xabarlarni matnga aylantiraman.
@@ -55,101 +47,12 @@ LANGUAGE_NAMES = {"uz": "O'zbek", "ru": "Rus", "en": "Ingliz", "auto": "Avtomati
 
 USER_LANGUAGES: dict[int, str] = {}
 
-UZBEK_CONTEXT_PROMPT = "O'zbek tilidagi tabiiy suhbat."
-
-UZBEK_NORMALIZE_PROMPT = """Sen O'zbek tili eksperti va lingvistsan.
-
-# VAZIFA
-Senga Whisper STT modeli tomonidan TURK TILI sifatida transkripsiya qilingan matn beriladi. Lekin AUDIO ASLIDA O'ZBEK TILIDA. Whisper o'zbek tilini bilmaydi, shuning uchun u o'zbek nutqini turk fonetikasi va so'zlariga aylantirib yozadi.
-
-Sening vazifang: matnni ASL O'ZBEK NUTQIGA qaytarish.
-
-# QILADIGAN ISHLARING
-
-1. **Standart turk so'zlarini o'zbek ekvivalentiga aylantir** (chunki ular aslida o'zbek so'zlar bo'lgan, Whisper noto'g'ri yozgan):
-   - iyi misin/iyi misiniz → yaxshimisiz
-   - nasılsın/nasılsınız → qalaysiz
-   - sağlam mısın → salomatmisiz
-   - ne var → nima bor / nima gap
-   - nereye → qayerga
-   - nerede → qayerda
-   - kaç saat → necha soat
-   - saat kaç → soat necha
-   - bekliyorum → kutyapman
-   - bekledik → kutdik
-   - geldim → keldim
-   - gittim → ketdim
-   - yapıyorum → qilyapman
-   - bilmiyorum → bilmayman
-   - merhaba/selam → salom (yoki assalomu alaykum)
-   - teşekkür ederim → rahmat
-   - evet → ha
-   - hayır → yo'q
-   - ben → men
-   - sen → sen
-   - biz → biz
-   - onlar → ular
-   - bu → bu
-   - şu → shu
-   - o → o / u
-   - ne → nima
-   - kim → kim
-   - nasıl → qanday
-   - büyük → katta
-   - küçük → kichkina
-   - güzel → chiroyli / yaxshi
-   - kötü → yomon
-   - yeni → yangi
-   - eski → eski
-   - var → bor
-   - yok → yo'q
-
-2. **Alfavitni O'zbek lotinga aylantir**:
-   ə→a, ş→sh, ç→ch, ı→i, ğ→g (kontekstga qarab g'), ü→u (yoki o'), ö→o (yoki o')
-
-3. **O'zbek apostrof tiklash**:
-   o' (ok→o'q, kop→ko'p, dost→do'st, koz→ko'z, soz→so'z)
-   g' (yog→yog', tog→tog', sog→sog')
-   yo'q, do'st, ko'cha, o'quvchi
-
-4. **Turk grammatik suffiks → o'zbekcha**:
-   -ler/-lar → -lar
-   -dur/-dır/-dir → -dir
-   -dum/-dün/-dın → -dim/-ding
-   -yor → -yapti
-   -mişim → -ganman
-
-5. **Punktuatsiya**:
-   Nuqta, vergul, savol belgisi qo'y. Gap boshini va atoqli otlarni bosh harf qil.
-
-# NIMA QILMASLIK
-
-❌ **Yangi so'z O'YLAB TOPMA**. Faqat audioda bor narsalarni tikla.
-❌ **Mavjud so'zni mazmunan o'zgartirma** (masalan: "qoldirib" ni "qaytarib" qilma)
-❌ **Noma'lum so'zlarni mashhur so'zga almashtirma**:
-   - "Nabarot", "Mantar", "Xrissh" kabi tushunilmagan so'zlar → AYNAN saqla (ism, joy, atama bo'lishi mumkin)
-   - Agar so'z mazmunan g'alati ko'rinsa ham, fonetik o'xshashlik orqali eng yaqin O'zbek so'zini topishga URINMA. Saqla.
-❌ **Tarjima qilma** agar matn aniq Rus yoki Ingliz tilida bo'lsa.
-❌ **Tartibni o'zgartirma**, gaplarni qayta tartiblama.
-
-# MISOLLAR
-
-INPUT: "Orada iyi misin? Sağlam mısın? Çorşıda iyi misin? Orada masada ne var? Masada kompyüter var."
-OUTPUT: O'rada yaxshimisiz? Salomatmisiz? Chorshida yaxshimisiz? O'rada masada nima bor? Masada kompyuter bor.
-
-INPUT: "Anor aka iyi misin salametmisin çarçamay iyi misin"
-OUTPUT: Anor aka, yaxshimisiz, salomatmisiz, charchamay yaxshimisiz?
-
-INPUT: "Nabarot kelişse darsni koldurmasdan"
-OUTPUT: Nabarot kelishsa darsni qoldirmasdan.
-(Diqqat: "Nabarot" — noma'lum so'z, AYNAN saqlandi. "kelişse" → "kelishsa" turkcha grammatik suffiks, o'zbekiga o'tkazildi. "koldurmasdan" → "qoldirmasdan" fonetik o'zbek shaklini tikladi)
-
-INPUT: "Kompyutermasada hasis mahal kılaylık ekan"
-OUTPUT: Kompyutermasada hasis mahal qilaylik ekan.
-(Diqqat: "Kompyutermasada", "hasis mahal" — noma'lum/o'ziga xos iboralar, saqlandi)
-
-# NATIJA FORMATI
-Faqat tuzatilgan O'zbek matni. Izoh, sarlavha, qo'shtirnoq, "Output:" prefiksi qo'shma."""
+GROQ_LANG_MAP = {
+    "uz": "uz",
+    "ru": "ru",
+    "en": "en",
+    "auto": None,
+}
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -170,51 +73,24 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 
-async def whisper_pass(file_path: str, language: str | None) -> str:
+async def transcribe_audio(file_path: str, target_lang: str) -> str:
+    language = GROQ_LANG_MAP.get(target_lang, "uz")
     try:
         with open(file_path, "rb") as f:
             params = dict(
-                model="whisper-1",
-                file=f,
+                model="whisper-large-v3",
+                file=("audio.ogg", f, "audio/ogg"),
                 response_format="text",
                 temperature=0,
-                prompt=UZBEK_CONTEXT_PROMPT,
             )
-            if language and language in WHISPER_SUPPORTED_LANGS:
+            if language:
                 params["language"] = language
-            response = await openai_client.audio.transcriptions.create(**params)
-        text = response.strip() if isinstance(response, str) else response.text.strip()
-        return text
+            response = await groq_client.audio.transcriptions.create(**params)
+        text = response if isinstance(response, str) else response.text
+        return text.strip() if text else ""
     except Exception as e:
-        logger.warning(f"Whisper pass failed (lang={language}): {e}")
+        logger.error(f"Groq transcription failed (lang={language}): {e}")
         return ""
-
-
-async def normalize_uzbek(raw_text: str) -> str:
-    if not raw_text:
-        return ""
-    response = await openai_client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": UZBEK_NORMALIZE_PROMPT},
-            {"role": "user", "content": raw_text},
-        ],
-        temperature=0,
-    )
-    return response.choices[0].message.content.strip()
-
-
-async def transcribe_audio(file_path: str, target_lang: str) -> str:
-    if target_lang == "uz":
-        raw = await whisper_pass(file_path, "tr")
-        if not raw:
-            return ""
-        return await normalize_uzbek(raw)
-
-    if target_lang == "auto":
-        return await whisper_pass(file_path, None)
-
-    return await whisper_pass(file_path, target_lang)
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -287,9 +163,9 @@ def main() -> None:
     if not token:
         raise ValueError("TELEGRAM_BOT_TOKEN .env faylda topilmadi!")
 
-    openai_key = os.getenv("OPENAI_API_KEY")
-    if not openai_key:
-        raise ValueError("OPENAI_API_KEY .env faylda topilmadi!")
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        raise ValueError("GROQ_API_KEY .env faylda topilmadi!")
 
     app = Application.builder().token(token).build()
 
