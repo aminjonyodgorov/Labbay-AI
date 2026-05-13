@@ -55,8 +55,10 @@ LANGUAGE_NAMES = {"uz": "O'zbek", "ru": "Rus", "en": "Ingliz", "auto": "Avtomati
 USER_LANGUAGES: dict[int, str] = {}
 
 UZBEK_PROMPT = (
-    "Bu O'zbek tilidagi suhbat. Assalomu alaykum, rahmat, iltimos, "
-    "ha, yo'q, men, sen, biz, ular, bugun, ertaga, kecha, yaxshi, yomon."
+    "Assalomu alaykum aka, qalaysiz? Bugun darsga keldingizmi? "
+    "Iltimos, menga yordam bering. Rahmat, ha xo'p bo'pti. "
+    "Men sizga aytdim, lekin siz eshitmadingiz. Navbat kelganda "
+    "qo'ng'iroq qiling. O'zbekiston, Toshkent, Samarqand, Buxoro."
 )
 
 
@@ -84,11 +86,11 @@ def whisper_transcribe(file_path: str, language: str | None) -> str:
             model="whisper-1",
             file=audio_file,
             response_format="text",
+            temperature=0,
         )
         if language and language in WHISPER_SUPPORTED_LANGS:
             params["language"] = language
-        else:
-            params["prompt"] = UZBEK_PROMPT
+        params["prompt"] = UZBEK_PROMPT
 
         response = openai_client.audio.transcriptions.create(**params)
 
@@ -97,41 +99,51 @@ def whisper_transcribe(file_path: str, language: str | None) -> str:
     return response.text.strip()
 
 
-def gpt_to_uzbek(text: str) -> str:
+def reconstruct_uzbek(text: str) -> str:
     response = openai_client.chat.completions.create(
-        model="gpt-4o-mini",
+        model="gpt-4o",
         messages=[
             {
                 "role": "system",
                 "content": (
-                    "Sen O'zbek tili mutaxassisi va tarjimonsan. "
-                    "Senga Whisper tomonidan transkripsiya qilingan matn beriladi. "
-                    "Matn O'zbek tilidagi nutqdan olingan, lekin Whisper uni "
-                    "boshqa til (Turk, Ozarbayjon, Rus va h.k.) sifatida noto'g'ri "
-                    "transkripsiya qilgan bo'lishi mumkin. "
-                    "Sening vazifang: matnni TO'G'RI O'ZBEK LOTIN ALIFBOSIDA yozish. "
-                    "Foydalanadigan harflar: a, b, d, e, f, g, h, i, j, k, l, m, n, o, "
-                    "p, q, r, s, t, u, v, x, y, z, o', g', sh, ch, ng, '. "
-                    "Hech qachon ə, ş, ı, ğ, ü, ö, ə kabi Turk/Ozarbayjon harflarini "
-                    "ishlatma. "
-                    "Agar matn boshqa tilda bo'lsa (Rus, Ingliz), uni O'zbek tiliga "
-                    "TARJIMA qil. "
-                    "Faqat natijani qaytar, hech qanday izoh, sarlavha yoki belgi qo'shma."
+                    "Sen O'zbek tili eksperti va lingvistsan. "
+                    "Senga Whisper modeli tomonidan transkripsiya qilingan matn beriladi. "
+                    "MUHIM: bu matn aslida O'ZBEK TILIDAGI nutqdan olingan, lekin "
+                    "Whisper o'zbek tilini bilmaydi va uni Turk tili sifatida "
+                    "noto'g'ri yozib bergan. Shu sababli ko'p so'zlar buzilgan, "
+                    "g'alati shaklda yozilgan yoki noto'g'ri so'zlar sifatida yozilgan "
+                    "(masalan 'Nabarot' aslida 'Navbat', 'qo'llarim' aslida "
+                    "'qoldirib', 'kelishsen' aslida 'kelishsa', 'nihul' aslida "
+                    "'nima' yoki 'nimadir' bo'lishi mumkin).\n\n"
+                    "Sening vazifang:\n"
+                    "1. Matnni diqqat bilan o'qib, KONTEKSTDAN va FONETIK O'XSHASHLIKDAN "
+                    "foydalanib, asl O'zbek so'zlarini TIKLA va mazmunan to'g'ri "
+                    "O'zbek tilida yoz.\n"
+                    "2. Faqat O'zbek lotin alifbosidan foydalanish: a b d e f g h i j "
+                    "k l m n o p q r s t u v x y z, hamda o', g', sh, ch.\n"
+                    "3. Turk/Ozarbayjon harflarini (ə, ş, ı, ğ, ü, ö) ishlatma.\n"
+                    "4. Tinish belgilarini to'g'ri qo'y (nuqta, vergul, savol belgisi).\n"
+                    "5. Agar matn aniq Rus yoki Ingliz tilida bo'lsa, uni o'sha holicha "
+                    "qoldir, tarjima qilma.\n"
+                    "6. So'zlarni o'ylab top yoki qo'shma — faqat audioda bor "
+                    "narsalarni qayta tikla. Agar so'z mazmunsiz bo'lsa va kontekstdan "
+                    "tushunib bo'lmasa, eng yaqin fonetik o'xshash O'zbek so'zini qo'y.\n\n"
+                    "FAQAT tuzatilgan matnni qaytar — izohsiz, sarlavhasiz, qo'shtirnoqsiz."
                 ),
             },
             {"role": "user", "content": text},
         ],
-        temperature=0,
+        temperature=0.2,
     )
     return response.choices[0].message.content.strip()
 
 
 async def transcribe_audio(file_path: str, target_lang: str) -> str:
     if target_lang == "uz":
-        raw = whisper_transcribe(file_path, language=None)
+        raw = whisper_transcribe(file_path, language="tr")
         if not raw:
             return ""
-        return gpt_to_uzbek(raw)
+        return reconstruct_uzbek(raw)
 
     if target_lang == "auto":
         return whisper_transcribe(file_path, language=None)
