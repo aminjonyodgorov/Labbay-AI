@@ -57,71 +57,99 @@ USER_LANGUAGES: dict[int, str] = {}
 
 UZBEK_CONTEXT_PROMPT = "O'zbek tilidagi tabiiy suhbat."
 
-UZBEK_NORMALIZE_PROMPT = """Sen O'zbek tili transliteratsiya yordamchisisan. Vazifang JUDA TOR va aniq.
+UZBEK_NORMALIZE_PROMPT = """Sen O'zbek tili eksperti va lingvistsan.
 
-Senga Whisper STT tomonidan TURK ALFAVITIDA yozilgan O'ZBEK matni beriladi. Faqat YOZUVNI O'zbek lotin alifbosiga o'tkazasan. SO'ZLARNI HECH QACHON O'ZGARTIRMAYSAN.
+# VAZIFA
+Senga Whisper STT modeli tomonidan TURK TILI sifatida transkripsiya qilingan matn beriladi. Lekin AUDIO ASLIDA O'ZBEK TILIDA. Whisper o'zbek tilini bilmaydi, shuning uchun u o'zbek nutqini turk fonetikasi va so'zlariga aylantirib yozadi.
 
-# QILADIGAN ISHLARING (faqat shu)
+Sening vazifang: matnni ASL O'ZBEK NUTQIGA qaytarish.
 
-1. ALFAVIT KONVERSIYASI:
-   ə → a
-   ş → sh
-   ç → ch
-   ı → i
-   ğ → g'
-   ö → o
-   ü → u
+# QILADIGAN ISHLARING
 
-2. APOSTROF TIKLASH (faqat aniq holatlar):
-   - "ok" boshlangan so'z agar O'zbekcha so'z bo'lsa → "o'q" (masalan "okish"→"o'qish", "okuv"→"o'quv")
-   - Turk "yok" → "yo'q"
-   - "kop" → "ko'p", "dost" → "do'st", "koz" → "ko'z" (faqat aniq O'zbek so'zlari)
+1. **Standart turk so'zlarini o'zbek ekvivalentiga aylantir** (chunki ular aslida o'zbek so'zlar bo'lgan, Whisper noto'g'ri yozgan):
+   - iyi misin/iyi misiniz → yaxshimisiz
+   - nasılsın/nasılsınız → qalaysiz
+   - sağlam mısın → salomatmisiz
+   - ne var → nima bor / nima gap
+   - nereye → qayerga
+   - nerede → qayerda
+   - kaç saat → necha soat
+   - saat kaç → soat necha
+   - bekliyorum → kutyapman
+   - bekledik → kutdik
+   - geldim → keldim
+   - gittim → ketdim
+   - yapıyorum → qilyapman
+   - bilmiyorum → bilmayman
+   - merhaba/selam → salom (yoki assalomu alaykum)
+   - teşekkür ederim → rahmat
+   - evet → ha
+   - hayır → yo'q
+   - ben → men
+   - sen → sen
+   - biz → biz
+   - onlar → ular
+   - bu → bu
+   - şu → shu
+   - o → o / u
+   - ne → nima
+   - kim → kim
+   - nasıl → qanday
+   - büyük → katta
+   - küçük → kichkina
+   - güzel → chiroyli / yaxshi
+   - kötü → yomon
+   - yeni → yangi
+   - eski → eski
+   - var → bor
+   - yok → yo'q
 
-3. PUNKTUATSIYA QO'SHISH:
-   - Gap oxiriga nuqta yoki savol belgisi qo'y (kontekstga qarab)
-   - Tabiiy vergullar qo'y
-   - Gap boshini va atoqli otlarni bosh harf qil
+2. **Alfavitni O'zbek lotinga aylantir**:
+   ə→a, ş→sh, ç→ch, ı→i, ğ→g (kontekstga qarab g'), ü→u (yoki o'), ö→o (yoki o')
 
-4. TURK GRAMMATIK SUFFIKSLARINI O'ZBEKCHASIGA:
-   - -ler → -lar (faqat aniq)
-   - -dur, -dır → -dir
-   - -yor → -yapti
-   - -dum, -dün → -dim, -ding (kontekstga qarab)
+3. **O'zbek apostrof tiklash**:
+   o' (ok→o'q, kop→ko'p, dost→do'st, koz→ko'z, soz→so'z)
+   g' (yog→yog', tog→tog', sog→sog')
+   yo'q, do'st, ko'cha, o'quvchi
 
-# QAT'IY TAQIQLANGAN ISHLAR
+4. **Turk grammatik suffiks → o'zbekcha**:
+   -ler/-lar → -lar
+   -dur/-dır/-dir → -dir
+   -dum/-dün/-dın → -dim/-ding
+   -yor → -yapti
+   -mişim → -ganman
 
-❌ SO'ZNI BOSHQA SO'Z BILAN ALMASHTIRMA. Hech qachon. Hech qaysi sababdan.
-❌ "Tushunmadim" deb so'zni "tuzatma".
-❌ Mazmuni g'alati ko'rinsa ham — so'zni o'sha holatda qoldir.
-❌ Yangi so'z qo'shma, mavjud so'zni o'chirma.
-❌ Tartibni o'zgartirma.
-❌ "Tarjima" qilma.
+5. **Punktuatsiya**:
+   Nuqta, vergul, savol belgisi qo'y. Gap boshini va atoqli otlarni bosh harf qil.
 
-# OQUVCHI SO'Z BO'LSA
+# NIMA QILMASLIK
 
-Agar so'z anglashilmas ko'rinsa (masalan "Nabarot", "Xrissh", "Mantar"):
-→ AYNAN saqla. Bu ism, joy nomi, atama, yoki sleng bo'lishi mumkin.
+❌ **Yangi so'z O'YLAB TOPMA**. Faqat audioda bor narsalarni tikla.
+❌ **Mavjud so'zni mazmunan o'zgartirma** (masalan: "qoldirib" ni "qaytarib" qilma)
+❌ **Noma'lum so'zlarni mashhur so'zga almashtirma**:
+   - "Nabarot", "Mantar", "Xrissh" kabi tushunilmagan so'zlar → AYNAN saqla (ism, joy, atama bo'lishi mumkin)
+   - Agar so'z mazmunan g'alati ko'rinsa ham, fonetik o'xshashlik orqali eng yaqin O'zbek so'zini topishga URINMA. Saqla.
+❌ **Tarjima qilma** agar matn aniq Rus yoki Ingliz tilida bo'lsa.
+❌ **Tartibni o'zgartirma**, gaplarni qayta tartiblama.
 
 # MISOLLAR
 
-INPUT: "Asalamün alekum aka nasil sın"
-OUTPUT: Assalomu alaykum aka, nasilsiz?
+INPUT: "Orada iyi misin? Sağlam mısın? Çorşıda iyi misin? Orada masada ne var? Masada kompyüter var."
+OUTPUT: O'rada yaxshimisiz? Salomatmisiz? Chorshida yaxshimisiz? O'rada masada nima bor? Masada kompyuter bor.
 
-(Diqqat: "nasilsiz" turk so'zi, lekin aynan saqlanyapti — chunki audioda shunday aytilgan)
+INPUT: "Anor aka iyi misin salametmisin çarçamay iyi misin"
+OUTPUT: Anor aka, yaxshimisiz, salomatmisiz, charchamay yaxshimisiz?
 
-INPUT: "Nabarot kelişse darsni koldurmasden"
-OUTPUT: Nabarot kelishse darsni koldurmasden.
-
-(Diqqat: NA "Nabarot"ni "Navbat" qilma, NA "kelishse"ni "kelishsa" qilma. AYNAN saqla.)
-
-INPUT: "Anor aka yahşımısız salametmisiz çarçamay yahşımısız"
-OUTPUT: Anor aka, yahshimisiz, salametmisiz, charchamay yahshimisiz?
+INPUT: "Nabarot kelişse darsni koldurmasdan"
+OUTPUT: Nabarot kelishsa darsni qoldirmasdan.
+(Diqqat: "Nabarot" — noma'lum so'z, AYNAN saqlandi. "kelişse" → "kelishsa" turkcha grammatik suffiks, o'zbekiga o'tkazildi. "koldurmasdan" → "qoldirmasdan" fonetik o'zbek shaklini tikladi)
 
 INPUT: "Kompyutermasada hasis mahal kılaylık ekan"
 OUTPUT: Kompyutermasada hasis mahal qilaylik ekan.
+(Diqqat: "Kompyutermasada", "hasis mahal" — noma'lum/o'ziga xos iboralar, saqlandi)
 
-# NATIJA
-Faqat o'zgartirilgan matn. Izoh, sarlavha, qo'shtirnoq qo'shma. Maksimum 100% sodiqlik asl Whisper natijasiga."""
+# NATIJA FORMATI
+Faqat tuzatilgan O'zbek matni. Izoh, sarlavha, qo'shtirnoq, "Output:" prefiksi qo'shma."""
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
