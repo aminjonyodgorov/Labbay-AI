@@ -4,6 +4,7 @@ import logging
 import tempfile
 from dotenv import load_dotenv
 from groq import AsyncGroq
+from openai import AsyncOpenAI
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -22,6 +23,62 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 groq_client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+UZBEK_FIX_PROMPT = """Sen O'zbek tili eksperti va lingvistsan.
+
+# VAZIFA
+Senga Whisper STT modeli tomonidan O'ZBEK TILIDA transkripsiya qilingan matn beriladi. Lekin Whisper fonetik xatoliklar qiladi — so'zlarni notog'ri yozadi, bo'shliqlarni notog'ri qo'yadi, so'zlarni birlashtiradi yoki ajratadi.
+
+Sening vazifang: matnni FONETIK O'XSHASHLIK orqali to'g'ri o'zbek so'zlariga aylantirish.
+
+# QILADIGAN ISHLARING
+
+1. **Fonetik tuzatish** (so'zlarni eshitilishi bo'yicha to'g'ri o'zbek so'ziga aylantir):
+   - "aqshmisi" / "aqshmisiz" → "yaxshimisiz"
+   - "salametmisi" / "salamatmisi" → "salomatmisiz"
+   - "sharcimi" / "charcamay" → "charchamay"
+   - "An oraki" / "Anoraka" → "Anor aka" (yoki tegishli ism)
+   - "qlayli" / "qilayli" → "qilaylik"
+   - "gaki" / "gapki" → "gapni" / "gapi"
+   - "noa" / "anova" → "anavi"
+   - "buldi" → "bo'ldi"
+   - "Aki" / "ki" → "hali" / "haligi"
+   - "shima" → "shuni"
+   - "kampitur" / "kompitur" → "kompyuter"
+   - "qlay" → "qilay"
+   - "qlayli" → "qilaylik"
+
+2. **So'z chegaralarini to'g'rilash**:
+   - Notog'ri birlashtirilgan so'zlarni ajrat ("Kompyutermasada" → "kompyuter masada")
+   - Notog'ri ajratilgan so'zlarni birlashtir
+
+3. **O'zbek apostrof tiklash**:
+   - o' (kop→ko'p, dost→do'st, koz→ko'z, soz→so'z, buldi→bo'ldi)
+   - g' (yog→yog', tog→tog', sog→sog')
+
+4. **Punktuatsiya va bosh harf**:
+   Nuqta, vergul, savol belgisi qo'y. Gap boshini va atoqli otlarni (ism, joy) bosh harf qil.
+
+# NIMA QILMASLIK
+
+❌ **Yangi so'z O'YLAB TOPMA**. Faqat eshitilgan narsalarni tikla.
+❌ **Mavjud so'zni mazmunan o'zgartirma** ("qoldirib" ni "qaytarib" qilma)
+❌ **Tushunarli so'zni o'zgartirma** — agar so'z to'g'ri yozilgan bo'lsa, tegma
+❌ **Noma'lum yoki o'ziga xos so'zlarni** (ism, joy, atama) mashhur so'zga aylantirma — saqla
+❌ **Tarjima qilma** agar matn aniq Rus yoki Ingliz tilida bo'lsa
+❌ **Tartibni o'zgartirma**, gaplarni qayta tartiblama
+
+# MISOLLAR
+
+INPUT: An oraki aqshmisi, salamatmisi, sharcimi aqsizmi. Aki, an o masala noa buldi. Kampitur masalasi, shima hal qlayli gaki.
+OUTPUT: Anor aka, yaxshimisiz, salomatmisiz, charchamay yaxshimisiz? Hali, anavi masala bo'ldi. Kompyuter masalasi, shuni hal qilaylik gapni.
+
+INPUT: Salom qalaysiz yaxshimisiz
+OUTPUT: Salom, qalaysiz, yaxshimisiz?
+
+# NATIJA FORMATI
+Faqat tuzatilgan o'zbek matni. Izoh, sarlavha, qo'shtirnoq, "Output:" prefiksi qo'shma."""
 
 WELCOME_TEXT = """
 👋 Salom! Men ovozli xabarlarni matnga aylantiraman.
@@ -73,8 +130,7 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 
-async def transcribe_audio(file_path: str, target_lang: str) -> str:
-    language = GROQ_LANG_MAP.get(target_lang, "uz")
+async def groq_transcribe(file_path: str, language: str | None) -> str:
     try:
         with open(file_path, "rb") as f:
             file_bytes = f.read()
@@ -91,6 +147,34 @@ async def transcribe_audio(file_path: str, target_lang: str) -> str:
     except Exception as e:
         logger.error(f"Groq transcription failed (lang={language}): {e}", exc_info=True)
         return ""
+
+
+async def fix_uzbek(raw_text: str) -> str:
+    if not raw_text:
+        return ""
+    try:
+        response = await openai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": UZBEK_FIX_PROMPT},
+                {"role": "user", "content": raw_text},
+            ],
+            temperature=0,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.warning(f"GPT fix failed, returning raw: {e}")
+        return raw_text
+
+
+async def transcribe_audio(file_path: str, target_lang: str) -> str:
+    language = GROQ_LANG_MAP.get(target_lang, "uz")
+    raw = await groq_transcribe(file_path, language)
+    if not raw:
+        return ""
+    if target_lang == "uz":
+        return await fix_uzbek(raw)
+    return raw
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
