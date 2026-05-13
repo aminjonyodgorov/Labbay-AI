@@ -78,19 +78,18 @@ async def transcribe_audio(file_path: str, target_lang: str) -> str:
     try:
         with open(file_path, "rb") as f:
             file_bytes = f.read()
-        params = dict(
+        kwargs = dict(
             model="whisper-large-v3",
             file=("audio.ogg", file_bytes),
-            response_format="verbose_json",
             temperature=0,
         )
         if language:
-            params["language"] = language
-        response = await groq_client.audio.transcriptions.create(**params)
-        text = response.text if hasattr(response, "text") else str(response)
+            kwargs["language"] = language
+        response = await groq_client.audio.transcriptions.create(**kwargs)
+        text = getattr(response, "text", None) or (response if isinstance(response, str) else "")
         return text.strip() if text else ""
     except Exception as e:
-        logger.error(f"Groq transcription failed (lang={language}): {e}")
+        logger.error(f"Groq transcription failed (lang={language}): {e}", exc_info=True)
         return ""
 
 
