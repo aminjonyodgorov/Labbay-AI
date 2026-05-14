@@ -45,6 +45,12 @@ WHISPER_PROMPT_UZ = (
     "hayrli tong, marhamat, iltimos, kechirasiz, mayli, xayr."
 )
 
+OPENAI_PROMPT_UZ = (
+    "The following audio is in the Uzbek language (O'zbek tili, Latin alphabet). "
+    "Transcribe accurately in Uzbek using Latin script with apostrophes (o', g'). "
+    + WHISPER_PROMPT_UZ
+)
+
 
 UZBEK_FIX_PROMPT = """Sen O'zbek tili va madaniyati bo'yicha lingvist-eksperti san. Senga Whisper STT modeli o'zbek nutqini transkripsiya qilgan, lekin fonetik xatolar bilan yozgan matn beriladi. Sening vazifang — fonetik o'xshashlik orqali asl o'zbek so'zlarini tiklash.
 
@@ -265,19 +271,23 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 OPENAI_MODELS = ("gpt-4o-transcribe", "gpt-4o-mini-transcribe", "whisper-1")
+OPENAI_UZBEK_BLOCKED = {"whisper-1"}
 
 
 async def _openai_transcribe_with_model(model: str, file_bytes: bytes, language: str | None) -> str:
     if not openai_client:
         raise RuntimeError("OpenAI client not configured")
+    if language == "uz" and model in OPENAI_UZBEK_BLOCKED:
+        raise RuntimeError(f"{model} does not support Uzbek")
     kwargs: dict = dict(
         model=model,
         file=("audio.ogg", file_bytes),
     )
-    if language:
-        kwargs["language"] = language
     if language == "uz":
-        kwargs["prompt"] = WHISPER_PROMPT_UZ
+        kwargs["prompt"] = OPENAI_PROMPT_UZ
+    else:
+        if language:
+            kwargs["language"] = language
     response = await openai_client.audio.transcriptions.create(**kwargs)
     text = getattr(response, "text", None) or (response if isinstance(response, str) else "")
     return text.strip() if text else ""
