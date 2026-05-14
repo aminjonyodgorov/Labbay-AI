@@ -249,6 +249,24 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 
+async def openai_transcribe(file_path: str, language: str | None) -> str:
+    if not openai_client:
+        raise RuntimeError("OpenAI client not configured")
+    with open(file_path, "rb") as f:
+        file_bytes = f.read()
+    kwargs: dict = dict(
+        model="gpt-4o-transcribe",
+        file=("audio.ogg", file_bytes),
+    )
+    if language:
+        kwargs["language"] = language
+    if language == "uz":
+        kwargs["prompt"] = WHISPER_PROMPT_UZ
+    response = await openai_client.audio.transcriptions.create(**kwargs)
+    text = getattr(response, "text", None) or (response if isinstance(response, str) else "")
+    return text.strip() if text else ""
+
+
 async def groq_transcribe(file_path: str, language: str | None) -> str:
     with open(file_path, "rb") as f:
         file_bytes = f.read()
@@ -264,6 +282,19 @@ async def groq_transcribe(file_path: str, language: str | None) -> str:
     response = await groq_client.audio.transcriptions.create(**kwargs)
     text = getattr(response, "text", None) or (response if isinstance(response, str) else "")
     return text.strip() if text else ""
+
+
+async def transcribe(file_path: str, language: str | None) -> str:
+    """Primary: OpenAI gpt-4o-transcribe. Fallback: Groq whisper-large-v3."""
+    if openai_client:
+        try:
+            text = await openai_transcribe(file_path, language)
+            if text:
+                return text
+            logger.warning("OpenAI transcribe returned empty, falling back to Groq Whisper")
+        except Exception as e:
+            logger.warning(f"OpenAI transcribe failed, falling back to Groq Whisper: {e}")
+    return await groq_transcribe(file_path, language)
 
 
 async def _fix_uzbek_openai(raw_text: str) -> str:
@@ -359,7 +390,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await voice_file.download_to_drive(tmp_path)
 
         language = GROQ_LANG_MAP.get(target_lang, "uz")
-        raw_text = await groq_transcribe(tmp_path, language)
+        raw_text = await transcribe(tmp_path, language)
         if not raw_text:
             await processing_msg.edit_text(EMPTY_TEXT)
             return
