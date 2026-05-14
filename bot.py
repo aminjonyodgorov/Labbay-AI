@@ -7,6 +7,7 @@ import uvicorn
 from collections import defaultdict
 from dotenv import load_dotenv
 from groq import AsyncGroq
+from openai import AsyncOpenAI
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -28,6 +29,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 groq_client = AsyncGroq(api_key=os.getenv("GROQ_API_KEY"))
+
+_openai_key = os.getenv("OPENAI_API_KEY")
+openai_client = AsyncOpenAI(api_key=_openai_key) if _openai_key else None
 
 WHISPER_PROMPT_UZ = (
     "O'zbek tilidagi tabiiy suhbat va so'zlashuv. Ism va joy nomlari aynan saqlansin. "
@@ -262,9 +266,22 @@ async def groq_transcribe(file_path: str, language: str | None) -> str:
     return text.strip() if text else ""
 
 
-async def fix_uzbek(raw_text: str) -> str:
-    if not raw_text:
-        return ""
+async def _fix_uzbek_openai(raw_text: str) -> str:
+    if not openai_client:
+        raise RuntimeError("OpenAI client not configured")
+    response = await openai_client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": UZBEK_FIX_PROMPT},
+            {"role": "user", "content": raw_text},
+        ],
+        temperature=0,
+    )
+    raw = response.choices[0].message.content or ""
+    return _sanitize_llm_output(raw)
+
+
+async def _fix_uzbek_groq(raw_text: str) -> str:
     response = await groq_client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[
@@ -275,6 +292,20 @@ async def fix_uzbek(raw_text: str) -> str:
     )
     raw = response.choices[0].message.content or ""
     return _sanitize_llm_output(raw)
+
+
+async def fix_uzbek(raw_text: str) -> str:
+    if not raw_text:
+        return ""
+    if openai_client:
+        try:
+            fixed = await _fix_uzbek_openai(raw_text)
+            if fixed:
+                return fixed
+            logger.warning("OpenAI fix returned empty, falling back to Groq Llama")
+        except Exception as e:
+            logger.warning(f"OpenAI fix failed, falling back to Groq Llama: {e}")
+    return await _fix_uzbek_groq(raw_text)
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
