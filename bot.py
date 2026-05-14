@@ -220,6 +220,21 @@ async def myid_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(f"🆔 Sizning Telegram ID: `{uid}`", parse_mode="Markdown")
 
 
+async def why_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _LAST_ASR_ERRORS:
+        await update.message.reply_text(
+            "✅ Oxirgi so'rovda OpenAI xatosi qayd etilmadi.\n\n"
+            "Bu ikki narsani anglatishi mumkin:\n"
+            "1) OpenAI muvaffaqiyatli ishladi (Xom kalitida 'openai/...' ko'rinadi)\n"
+            "2) Hali hech qaysi ovoz qayta ishlanmagan"
+        )
+        return
+    body = "\n".join(f"• {e}" for e in _LAST_ASR_ERRORS)
+    await update.message.reply_text(
+        f"🔍 Oxirgi ASR urinishlardagi xatolar:\n\n{body}",
+    )
+
+
 async def debug_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     uid = update.effective_user.id
     new_state = not USER_DEBUG.get(uid, False)
@@ -249,13 +264,14 @@ async def set_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 
-async def openai_transcribe(file_path: str, language: str | None) -> str:
+OPENAI_MODELS = ("gpt-4o-transcribe", "gpt-4o-mini-transcribe", "whisper-1")
+
+
+async def _openai_transcribe_with_model(model: str, file_bytes: bytes, language: str | None) -> str:
     if not openai_client:
         raise RuntimeError("OpenAI client not configured")
-    with open(file_path, "rb") as f:
-        file_bytes = f.read()
     kwargs: dict = dict(
-        model="gpt-4o-transcribe",
+        model=model,
         file=("audio.ogg", file_bytes),
     )
     if language:
@@ -284,20 +300,37 @@ async def groq_transcribe(file_path: str, language: str | None) -> str:
     return text.strip() if text else ""
 
 
-async def transcribe(file_path: str, language: str | None) -> str:
-    """Primary: OpenAI gpt-4o-transcribe. Fallback: Groq whisper-large-v3."""
+_LAST_ASR_ERRORS: list[str] = []
+
+
+async def transcribe(file_path: str, language: str | None) -> tuple[str, str]:
+    """Try OpenAI models in order, fall back to Groq. Returns (text, model_used)."""
+    errors: list[str] = []
     if openai_client:
-        try:
-            text = await openai_transcribe(file_path, language)
-            if text:
-                logger.info(f"ASR=openai/gpt-4o-transcribe lang={language} chars={len(text)}")
-                return text
-            logger.warning("OpenAI transcribe returned empty, falling back to Groq Whisper")
-        except Exception as e:
-            logger.warning(f"OpenAI transcribe failed ({type(e).__name__}: {e}), falling back to Groq Whisper")
+        with open(file_path, "rb") as f:
+            file_bytes = f.read()
+        for model in OPENAI_MODELS:
+            try:
+                text = await _openai_transcribe_with_model(model, file_bytes, language)
+                if text:
+                    logger.info(f"ASR=openai/{model} lang={language} chars={len(text)}")
+                    _LAST_ASR_ERRORS.clear()
+                    _LAST_ASR_ERRORS.extend(errors)
+                    return text, f"openai/{model}"
+                msg = f"openai/{model}: empty response"
+                logger.warning(msg)
+                errors.append(msg)
+            except Exception as e:
+                msg = f"openai/{model}: {type(e).__name__}: {str(e)[:200]}"
+                logger.warning(msg)
+                errors.append(msg)
+                continue
+        logger.warning("All OpenAI models failed, falling back to Groq Whisper")
     text = await groq_transcribe(file_path, language)
     logger.info(f"ASR=groq/whisper-large-v3 lang={language} chars={len(text)}")
-    return text
+    _LAST_ASR_ERRORS.clear()
+    _LAST_ASR_ERRORS.extend(errors)
+    return text, "groq/whisper-large-v3"
 
 
 async def _fix_uzbek_openai(raw_text: str) -> str:
@@ -393,7 +426,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await voice_file.download_to_drive(tmp_path)
 
         language = GROQ_LANG_MAP.get(target_lang, "uz")
-        raw_text = await transcribe(tmp_path, language)
+        raw_text, asr_model = await transcribe(tmp_path, language)
         if not raw_text:
             await processing_msg.edit_text(EMPTY_TEXT)
             return
@@ -412,7 +445,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if debug_on:
             text = (
                 f"📝 *Tuzatilgan (LLM):*\n{fixed_text}\n\n"
-                f"🔬 *Xom (Whisper):*\n{raw_text}"
+                f"🔬 *Xom ({asr_model}):*\n{raw_text}"
             )
         else:
             text = f"📝 {fixed_text}"
@@ -479,6 +512,7 @@ def build_app() -> Application:
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("myid", myid_command))
     app.add_handler(CommandHandler("debug", debug_command))
+    app.add_handler(CommandHandler("why", why_command))
     app.add_handler(CommandHandler("uz", set_language))
     app.add_handler(CommandHandler("ru", set_language))
     app.add_handler(CommandHandler("en", set_language))
