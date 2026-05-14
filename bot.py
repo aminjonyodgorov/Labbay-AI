@@ -290,11 +290,14 @@ async def transcribe(file_path: str, language: str | None) -> str:
         try:
             text = await openai_transcribe(file_path, language)
             if text:
+                logger.info(f"ASR=openai/gpt-4o-transcribe lang={language} chars={len(text)}")
                 return text
             logger.warning("OpenAI transcribe returned empty, falling back to Groq Whisper")
         except Exception as e:
-            logger.warning(f"OpenAI transcribe failed, falling back to Groq Whisper: {e}")
-    return await groq_transcribe(file_path, language)
+            logger.warning(f"OpenAI transcribe failed ({type(e).__name__}: {e}), falling back to Groq Whisper")
+    text = await groq_transcribe(file_path, language)
+    logger.info(f"ASR=groq/whisper-large-v3 lang={language} chars={len(text)}")
+    return text
 
 
 async def _fix_uzbek_openai(raw_text: str) -> str:
